@@ -29,6 +29,7 @@ import (
 )
 
 type Block struct {
+	ha        host.Host // Add this line
 	Index     int
 	Timestamp string
 	ProductID string
@@ -39,7 +40,18 @@ type Block struct {
 	Validator string
 }
 
-var AuthorizedNodes []string
+type Proposal struct {
+	NodeID string
+	Votes  int
+}
+
+var (
+	Blockchain      []Block
+	AuthorizedNodes []string
+	Proposals       []Proposal
+	mutex           = &sync.Mutex{}
+	ha              host.Host // Add this line
+)
 
 func InitializeAuthorizedNodes(nodes []string) {
 	AuthorizedNodes = nodes
@@ -51,10 +63,6 @@ func AddNode(nodeID string) {
 	mutex.Unlock()
 	fmt.Printf("Node %s added to the list of authorized nodes.\n", nodeID)
 }
-
-var Blockchain []Block
-
-var mutex = &sync.Mutex{}
 
 func makeBasicHost(listenPort int, secio bool, randseed int64) (host.Host, error) {
 
@@ -126,6 +134,13 @@ func readData(rw *bufio.ReadWriter) {
 		}
 		if str != "\n" {
 			// log.Println("Received data:", str)
+			if strings.HasPrefix(str, "proposenode,") {
+				nodeID := strings.TrimPrefix(str, "proposenode,")
+				// Add the proposal to the list of proposals
+				Proposals = append(Proposals, Proposal{NodeID: nodeID, Votes: 0})
+				fmt.Printf("Node %s proposed for addition.\n", nodeID)
+				continue
+			}
 
 			chain := make([]Block, 0)
 			if err := json.Unmarshal([]byte(str), &chain); err != nil {
@@ -181,28 +196,18 @@ func writeData(rw *bufio.ReadWriter) {
 
 		sendData = strings.Replace(sendData, "\n", "", -1)
 
-		// Check if the input is a command to propose a new node
+		// hech if the command has the proposed node:
+
 		if strings.HasPrefix(sendData, "proposenode,") {
 			nodeID := strings.TrimPrefix(sendData, "proposenode,")
+			// Add the proposal to the list of proposals
+			Proposals = append(Proposals, Proposal{NodeID: nodeID, Votes: 1})
 			// Send the proposal to all other nodes
-			// This could be done by writing the proposal to the stream
 			rw.WriteString(fmt.Sprintf("proposenode,%s\n", nodeID))
 			rw.Flush()
 			continue
 		}
 
-		// Check if the input is a proposal to add a new node
-		if strings.HasPrefix(sendData, "proposenode,") {
-			nodeID := strings.TrimPrefix(sendData, "proposenode,")
-			// Vote on the proposal
-			// This could be done by writing the vote to the stream
-			vote := "yes" // or "no"
-			rw.WriteString(fmt.Sprintf("vote,%s,%s\n", nodeID, vote))
-			rw.Flush()
-			continue
-		}
-
-		// Check if the input is a vote on a proposal
 		if strings.HasPrefix(sendData, "vote,") {
 			parts := strings.Split(sendData, ",")
 			if len(parts) != 3 {
@@ -210,24 +215,34 @@ func writeData(rw *bufio.ReadWriter) {
 			}
 			nodeID, vote := parts[1], parts[2]
 			// Count the vote
-			// This could be done by keeping a count of 'yes' and 'no' votes for each proposal
-			// If a majority of nodes voted 'yes', add the new node
-			if vote == "yes" {
-				AddNode(nodeID)
+			for i, proposal := range Proposals {
+				if proposal.NodeID == nodeID {
+					if vote == "yes" {
+						proposal.Votes++
+						Proposals[i] = proposal
+						// If a majority of nodes voted 'yes', add the new node
+						if proposal.Votes > len(AuthorizedNodes)/2 {
+							AddNode(nodeID)
+							// Remove the proposal after the node is added
+							Proposals = append(Proposals[:i], Proposals[i+1:]...)
+						}
+					}
+					break
+				}
 			}
 			continue
 		}
 
 		// Assume the sendData in format: productID,location,owner,validator
 		data := strings.Split(sendData, ",")
-		if len(data) != 4 {
-			log.Println("Invalid input. Please enter in the format: productID,location,owner,validator")
+		if len(data) != 3 {
+			log.Println("Invalid input. Please enter in the format: productID,location,owner")
 			continue
 		}
-		productID, location, owner, validator := data[0], data[1], data[2], data[3]
+		productID, location, owner := data[0], data[1], data[2]
+		validator := ha.ID().Pretty() // Use the host's ID as the validator
 
 		newBlock := generateBlock(Blockchain[len(Blockchain)-1], productID, location, owner, validator)
-
 		if isBlockValid(newBlock, Blockchain[len(Blockchain)-1]) {
 			mutex.Lock()
 			Blockchain = append(Blockchain, newBlock)
@@ -251,6 +266,7 @@ func writeData(rw *bufio.ReadWriter) {
 }
 
 func main() {
+
 	t := time.Now()
 	genesisBlock := Block{
 		Index:     0,
@@ -274,11 +290,14 @@ func main() {
 	if *listenF == 0 {
 		log.Fatal("Please provide a port to bind on with -l")
 	}
-
-	ha, err := makeBasicHost(*listenF, *secio, *seed)
+	var err error
+	ha, err = makeBasicHost(*listenF, *secio, *seed)
 	if err != nil {
 		log.Fatal(err)
 	}
+
+	InitializeAuthorizedNodes([]string{ha.ID().Pretty()})
+
 	streamHandler := network.StreamHandler(handleStream)
 	if *target == "" {
 		log.Println("listening for connections")
