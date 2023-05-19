@@ -296,18 +296,18 @@ func main() {
 		log.Fatal(err)
 	}
 
-	InitializeAuthorizedNodes([]string{ha.ID().Pretty()})
-
+	if len(AuthorizedNodes) == 0 {
+		InitializeAuthorizedNodes([]string{ha.ID().Pretty()})
+	}
 	streamHandler := network.StreamHandler(handleStream)
 	if *target == "" {
 		log.Println("listening for connections")
 		ha.SetStreamHandler("/p2p/1.0.0", streamHandler)
-
+		fmt.Printf("proposenode,%s\n", ha.ID().Pretty())
 		select {}
 
 	} else {
 		ha.SetStreamHandler("/p2p/1.0.0", streamHandler)
-
 		ipfsaddr, err := multiaddr.NewMultiaddr(*target)
 		if err != nil {
 			log.Fatalln(err)
@@ -340,7 +340,7 @@ func main() {
 
 		go writeData(rw)
 		go readData(rw)
-
+		fmt.Printf("proposenode,%s\n", ha.ID().Pretty())
 		select {} // hang forever
 
 	}
