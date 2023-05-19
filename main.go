@@ -157,6 +157,9 @@ func readData(rw *bufio.ReadWriter) {
 				// Green console color: 	\x1b[32m
 				// Reset console color: 	\x1b[0m
 				fmt.Printf("\x1b[32m%s\x1b[0m> ", string(bytes))
+
+				fmt.Printf("%v\n", AuthorizedNodes)
+
 			}
 			mutex.Unlock()
 		}
@@ -421,6 +424,6 @@ func generateBlock(oldBlock Block, productID, location, owner, validator string)
 
 // productID,location,owner,validator
 
-// 01, managua, musa, perez
+// 01, managua, musa,
 
-// 02, managua, musa, pablo
+// 02, managua, musa
