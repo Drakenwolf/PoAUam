@@ -364,11 +364,11 @@ func isBlockValid(newBlock, oldBlock Block) bool {
 
 	// todo: create add authorizated node function, implement it and implement initialize auth nodes
 
-	// if !isNodeAuthorized(newBlock.Validator) {
-	// 	log.Println("Error: isNodeAuthorized")
+	if !isNodeAuthorized(newBlock.Validator) {
+		log.Println("Error: isNodeAuthorized")
 
-	// 	return false
-	// }
+		return false
+	}
 
 	return true
 }
